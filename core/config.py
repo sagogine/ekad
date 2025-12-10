@@ -45,13 +45,13 @@ class Settings(BaseSettings):
             "When set to 'gcp', secrets will be fetched from GCP Secret Manager if not found in env vars."
         )
     )
-           secrets_path_prefix: str | None = Field(
-               default=None,
-               description=(
-                   "[OPTIONAL] Prefix for secret names in Secret Manager. "
-                   "Example: 'traceback/prod' would look for 'traceback/prod/google-api-key'"
-               )
-           )
+    secrets_path_prefix: str | None = Field(
+        default=None,
+        description=(
+            "[OPTIONAL] Prefix for secret names in Secret Manager. "
+            "Example: 'traceback/prod' would look for 'traceback/prod/google-api-key'"
+        )
+    )
 
     # ============================================
     # INFRASTRUCTURE (Defaults in code)
