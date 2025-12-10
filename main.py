@@ -1,5 +1,5 @@
 def main():
-    print("Hello from ekap!")
+    print("Hello from traceback!")
 
 
 if __name__ == "__main__":

@@ -1,15 +1,18 @@
 """Test data connectors."""
 import asyncio
 from datetime import datetime
+import pytest
 from ingestion.base import Document, DocumentType, SourceType
 from ingestion.processor import document_processor
 from ingestion.change_detector import change_detector
 from core.logging import configure_logging, get_logger
+from core.config import settings
 
 configure_logging()
 logger = get_logger(__name__)
 
 
+@pytest.mark.asyncio
 async def test_document_processing():
     """Test document processing (chunking and embedding)."""
     logger.info("Testing document processing")
@@ -21,7 +24,7 @@ async def test_document_processing():
         title="Test Document",
         source=SourceType.CONFLUENCE,
         document_type=DocumentType.REQUIREMENT,
-        business_area="pharmacy",
+        business_area=settings.business_areas_list[0] if settings.business_areas_list else "default",
         last_modified=datetime.utcnow(),
         url="https://example.com/test",
         metadata={"author": "Test Author"}
@@ -45,11 +48,12 @@ async def test_document_processing():
     return True
 
 
+@pytest.mark.asyncio
 async def test_change_detection():
     """Test change detection."""
     logger.info("Testing change detection")
     
-    business_area = "pharmacy"
+    business_area = settings.business_areas_list[0] if settings.business_areas_list else "default"
     source = "test_source"
     
     # Simulate first sync
@@ -77,15 +81,6 @@ async def test_change_detection():
     return True
 
 
-async def test_all():
-    """Run all tests."""
-    logger.info("Running connector tests")
-    
-    await test_document_processing()
-    await test_change_detection()
-    
-    logger.info("✓ All connector tests passed!")
-
-
 if __name__ == "__main__":
-    asyncio.run(test_all())
+    asyncio.run(test_document_processing())
+    asyncio.run(test_change_detection())

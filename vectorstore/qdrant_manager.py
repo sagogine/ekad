@@ -17,7 +17,7 @@ class QdrantManager:
         self.client = QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
-            api_key=settings.qdrant_api_key,
+            api_key=settings.get_secret_value(settings.qdrant_api_key, field_name="qdrant_api_key"),
             prefer_grpc=False,  # Use HTTP instead of gRPC
             https=False,  # Use HTTP not HTTPS
         )

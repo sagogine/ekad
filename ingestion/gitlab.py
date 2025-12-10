@@ -23,13 +23,14 @@ class GitLabConnector(BaseConnector):
         super().__init__(business_area)
         self.project_path = project_path
         
-        if not settings.gitlab_token:
+        gitlab_token = settings.get_secret_value(settings.gitlab_token, field_name="gitlab_token")
+        if not gitlab_token:
             raise ValueError("GitLab token not configured")
         
         # Initialize GitLab client
         self.client = gitlab.Gitlab(
             settings.gitlab_url,
-            private_token=settings.gitlab_token
+            private_token=gitlab_token
         )
         self.client.auth()
         

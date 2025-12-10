@@ -1,5 +1,6 @@
 """Test basic setup and connectivity."""
 import asyncio
+import pytest
 from core.config import settings
 from core.logging import configure_logging, get_logger
 from vectorstore.qdrant_manager import qdrant_manager
@@ -8,9 +9,10 @@ configure_logging()
 logger = get_logger(__name__)
 
 
+@pytest.mark.asyncio
 async def test_setup():
     """Test basic setup."""
-    logger.info("Testing EKAP setup")
+    logger.info("Testing Traceback setup")
     
     # Test configuration
     logger.info("Configuration loaded", business_areas=settings.business_areas_list)

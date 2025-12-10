@@ -24,13 +24,14 @@ class ConfluenceConnector(BaseConnector):
         super().__init__(business_area)
         self.space_key = space_key
         
-        if not all([settings.confluence_url, settings.confluence_username, settings.confluence_api_token]):
+        confluence_token = settings.get_secret_value(settings.confluence_api_token, field_name="confluence_api_token")
+        if not all([settings.confluence_url, settings.confluence_username, confluence_token]):
             raise ValueError("Confluence credentials not configured")
         
         self.client = Confluence(
             url=settings.confluence_url,
             username=settings.confluence_username,
-            password=settings.confluence_api_token,
+            password=confluence_token,
             cloud=True
         )
         logger.info(

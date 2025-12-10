@@ -7,6 +7,8 @@ from app.models import HealthResponse, BusinessAreasResponse
 from core.config import settings
 from core.logging import configure_logging, get_logger
 from vectorstore.qdrant_manager import qdrant_manager
+from core.graph import neo4j_manager
+from codeql import code_source_registry, codeql_analysis_service
 
 # Configure logging
 configure_logging()
@@ -17,7 +19,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    logger.info("Starting EKAP application", version=settings.app_version)
+    logger.info("Starting Traceback application", version=settings.app_version)
     
     # Initialize Qdrant collections
     try:
@@ -26,10 +28,48 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to initialize Qdrant collections", error=str(e))
     
+    # Initialize Neo4j schema (optional - only if code graph is enabled)
+    if settings.codeql_enabled:
+        try:
+            if neo4j_manager.is_available():
+                neo4j_manager.initialize_schema()
+                logger.info("Neo4j schema initialized")
+            else:
+                logger.info("Neo4j not available, code graph features disabled")
+        except Exception as e:
+            logger.warning("Failed to initialize Neo4j schema", error=str(e))
+    
+    # Auto-register code sources from SOURCES_CONFIG
+    if settings.codeql_enabled:
+        try:
+            for business_area in settings.business_areas_list:
+                sources_config = settings.sources_config_map.get(business_area, {})
+                codeql_config = sources_config.get("codeql")
+                if codeql_config:
+                    registered = codeql_analysis_service.register_source_from_config(
+                        business_area=business_area,
+                        codeql_config=codeql_config
+                    )
+                    if registered:
+                        logger.info(
+                            "Auto-registered code sources from config",
+                            business_area=business_area,
+                            source_count=len(registered)
+                        )
+        except Exception as e:
+            logger.warning("Failed to auto-register code sources", error=str(e))
+    
     yield
     
+    # Shutdown Neo4j connection
+    if neo4j_manager.is_available():
+        try:
+            neo4j_manager.close()
+        except Exception as e:
+            logger.warning("Error closing Neo4j connection", error=str(e))
+    
     # Shutdown
-    logger.info("Shutting down EKAP application")
+        logger.info("Shutting down Traceback application")
 
 
 # Create FastAPI app
@@ -77,12 +117,21 @@ async def health_check():
             except Exception as e:
                 logger.error(f"Failed to get info for {business_area}", error=str(e))
         
+        services = {
+            "qdrant": "connected",
+            "collections": collections_info
+        }
+        
+        # Check Neo4j if code graph is enabled
+        if settings.codeql_enabled:
+            if neo4j_manager.is_available():
+                services["neo4j"] = "connected"
+            else:
+                services["neo4j"] = "unavailable"
+        
         return HealthResponse(
             status="healthy",
-            services={
-                "qdrant": "connected",
-                "collections": collections_info
-            }
+            services=services
         )
     except Exception as e:
         logger.error("Health check failed", error=str(e))

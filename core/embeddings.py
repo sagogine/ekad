@@ -15,7 +15,7 @@ class EmbeddingService:
         """Initialize the embedding service."""
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model=settings.embedding_model,
-            google_api_key=settings.google_api_key,
+            google_api_key=settings.get_secret_value(settings.google_api_key, field_name="google_api_key"),
         )
         logger.info("Embedding service initialized", model=settings.embedding_model)
     

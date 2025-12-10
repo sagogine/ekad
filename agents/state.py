@@ -1,30 +1,24 @@
-"""Agent state definitions for LangGraph workflow."""
+"""Agent state definitions for incident workflow."""
 from typing import TypedDict, List, Dict, Any, Optional
 
 
-class AgentState(TypedDict):
-    """State shared across all agents in the workflow."""
-    
-    # Input
+class IncidentAgentState(TypedDict, total=False):
+    """State structure for incident-focused workflow."""
+
+    # Inputs
     query: str
     business_area: str
-    
-    # Researcher outputs
-    research_findings: Optional[Dict[str, Any]]
-    retrieved_documents: Optional[List[Dict[str, Any]]]
-    
-    # Writer outputs
-    draft_response: Optional[str]
-    
-    # Reviewer outputs
-    review_feedback: Optional[str]
-    review_approved: bool
-    
-    # Final output
-    final_response: Optional[str]
-    sources: Optional[List[Dict[str, Any]]]
-    
+    incident_payload: Dict[str, Any]
+
+    # Retrieval phase
+    retrieval_plan: Dict[str, Any]
+    retriever_results: Dict[str, List[Dict[str, Any]]]
+    incident_context: Dict[str, Any]
+
+    # Briefing phase
+    briefing_markdown: Optional[str]
+    briefing_summary: Optional[str]
+    attachments: List[Dict[str, Any]]
+
     # Metadata
-    iteration_count: int
-    max_iterations: int
-    error: Optional[str]
+    errors: List[str]

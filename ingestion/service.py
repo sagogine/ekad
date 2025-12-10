@@ -1,11 +1,13 @@
 """Ingestion service orchestrating connectors, processing, and vector store."""
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from datetime import datetime
 from enum import Enum
 from ingestion.base import Document, SourceType
 from ingestion.confluence import ConfluenceConnector
 from ingestion.firestore import FirestoreConnector
 from ingestion.gitlab import GitLabConnector
+from ingestion.code_connector import CodeConnector
+from ingestion.openmetadata import OpenMetadataConnector
 from ingestion.processor import document_processor
 from ingestion.change_detector import change_detector
 from vectorstore.qdrant_manager import qdrant_manager
@@ -63,6 +65,31 @@ class IngestionService:
             if not project_path:
                 raise ValueError("GitLab project_path required")
             return GitLabConnector(business_area, project_path)
+        
+        elif source == SourceType.CODE:
+            # Code connector needs source type and config
+            source_type = config.get('source', 'gitlab')
+            code_config = {
+                "source": source_type,
+                "project_path": config.get('project_path'),
+                "languages": config.get('languages', 'python|java|sql')
+            }
+            return CodeConnector(business_area, code_config)
+        
+        elif source == SourceType.OPENMETADATA:
+            service_name = config.get('service')
+            if not service_name:
+                raise ValueError("OpenMetadata service name required")
+            api_url = config.get('api_url')
+            api_token = config.get('api_token')
+            return OpenMetadataConnector(business_area, service_name, api_url, api_token)
+        
+        elif source == SourceType.CODEQL:
+            # CodeQL is not an ingestion source - it's handled by code graph analysis service
+            raise ValueError(
+                "CODEQL is not an ingestion source. "
+                "Use the code graph analysis API endpoints instead."
+            )
         
         else:
             raise ValueError(f"Unsupported source: {source}")
@@ -150,13 +177,13 @@ class IngestionService:
             
             # Delete removed documents from vector store
             if changes['deleted']:
-                # Delete all chunks of deleted documents
-                chunk_ids_to_delete = []
                 for doc_id in changes['deleted']:
-                    # Get all chunk IDs for this document
-                    # For simplicity, we'll use a pattern match
-                    # In production, you'd want to track chunk IDs properly
-                    pass  # TODO: Implement chunk deletion
+                    # TODO: Implement chunk deletion for documents removed from source
+                    logger.debug(
+                        "Chunk deletion pending implementation",
+                        business_area=business_area,
+                        document_id=doc_id
+                    )
                 
                 logger.info(
                     "Deleted documents",
@@ -252,43 +279,195 @@ class IngestionService:
         Returns:
             Dictionary of source configurations
         """
-        config = {}
-        
-        # Confluence
-        if settings.confluence_url:
-            space_key = None
-            if business_area == "pharmacy":
-                space_key = "PHARMACY"  # Default, should be configurable
-            elif business_area == "supply_chain":
-                space_key = "SUPPLY_CHAIN"
+        config: Dict[SourceType, Dict[str, Any]] = {}
+
+        # Preferred: use new sources_config mapping
+        raw_sources = settings.sources_config_map.get(business_area, {})
+        for source_name, source_config in raw_sources.items():
+            source_type = self._resolve_source_type(source_name)
+            if not source_type:
+                logger.warning(
+                    "Skipping unsupported source",
+                    business_area=business_area,
+                    source=source_name
+                )
+                continue
+
+            # Skip CODEQL - it's not an ingestion source, handled separately
+            if source_type == SourceType.CODEQL:
+                logger.debug(
+                    "Skipping CODEQL from ingestion (handled by code graph analysis)",
+                    business_area=business_area
+                )
+                continue
             
-            if space_key:
-                config[SourceType.CONFLUENCE] = {"space_key": space_key}
-        
-        # Firestore
-        if settings.google_cloud_project:
-            collection_name = None
-            if business_area == "pharmacy":
-                collection_name = settings.firestore_collection_pharmacy
-            elif business_area == "supply_chain":
-                collection_name = settings.firestore_collection_supply_chain
-            
-            if collection_name:
-                config[SourceType.FIRESTORE] = {"collection_name": collection_name}
-        
-        # GitLab
-        if settings.gitlab_token:
-            project_path = None
-            if business_area == "pharmacy":
-                project_path = settings.gitlab_projects_pharmacy
-            elif business_area == "supply_chain":
-                project_path = settings.gitlab_projects_supply_chain
-            
-            if project_path:
-                config[SourceType.GITLAB] = {"project_path": project_path}
-        
+            translated = self._translate_source_config(
+                business_area=business_area,
+                source_type=source_type,
+                source_config=source_config
+            )
+            if translated:
+                config[source_type] = translated
+
         return config
 
+    def _resolve_source_type(self, source_name: str) -> SourceType | None:
+        """
+        Resolve a source type string to SourceType enum.
+
+        Args:
+            source_name: Source identifier from config
+
+        Returns:
+            Matching SourceType or None if unsupported
+        """
+        normalized = source_name.strip().lower()
+        try:
+            return SourceType(normalized)
+        except ValueError:
+            return None
+
+    def _translate_source_config(
+        self,
+        business_area: str,
+        source_type: SourceType,
+        source_config: Dict[str, Any]
+    ) -> Dict[str, Any] | None:
+        """
+        Translate parsed source configuration into connector arguments.
+        """
+        if source_type == SourceType.CONFLUENCE:
+            space_key = (
+                source_config.get("space")
+                or source_config.get("space_key")
+                or source_config.get("space_id")
+            )
+            if not space_key:
+                logger.error(
+                    "Confluence source missing space configuration",
+                    business_area=business_area,
+                    config=source_config
+                )
+                return None
+            labels = source_config.get("labels")
+            if isinstance(labels, str):
+                labels = [labels]
+            return {
+                "space_key": space_key,
+                "labels": labels or []
+            }
+
+        if source_type == SourceType.FIRESTORE:
+            collection_name = (
+                source_config.get("collection")
+                or source_config.get("collection_name")
+            )
+            if not collection_name:
+                logger.error(
+                    "Firestore source missing collection configuration",
+                    business_area=business_area,
+                    config=source_config
+                )
+                return None
+            return {"collection_name": collection_name}
+
+        if source_type == SourceType.GITLAB:
+            project = source_config.get("project") or source_config.get("project_path")
+            projects = (
+                source_config.get("projects")
+                if isinstance(source_config.get("projects"), list)
+                else None
+            )
+
+            if projects:
+                project = projects[0]
+                if len(projects) > 1:
+                    logger.warning(
+                        "Multiple GitLab projects configured; using first project for ingestion",
+                        business_area=business_area,
+                        selected_project=project,
+                        skipped_projects=projects[1:]
+                    )
+
+            if not project:
+                logger.error(
+                    "GitLab source missing project configuration",
+                    business_area=business_area,
+                    config=source_config
+                )
+                return None
+
+            return {"project_path": project}
+
+        if source_type == SourceType.CODE:
+            # Code connector configuration
+            source = source_config.get("source", "gitlab")
+            project_path = source_config.get("project_path") or source_config.get("project")
+            languages = source_config.get("languages", "python|java|sql")
+            
+            if source == "gitlab" and not project_path:
+                logger.error(
+                    "Code source (gitlab) missing project_path configuration",
+                    business_area=business_area,
+                    config=source_config
+                )
+                return None
+            
+            return {
+                "source": source,
+                "project_path": project_path,
+                "languages": languages
+            }
+
+        if source_type == SourceType.OPENMETADATA:
+            service = source_config.get("service") or source_config.get("service_name")
+            if not service:
+                logger.error(
+                    "OpenMetadata source missing service configuration",
+                    business_area=business_area,
+                    config=source_config
+                )
+                return None
+            
+            return {
+                "service": service,
+                "api_url": source_config.get("api_url"),
+                "api_token": source_config.get("api_token")
+            }
+
+        if source_type == SourceType.CODEQL:
+            # CodeQL is not an ingestion source - it's for code graph analysis
+            # This config is used by the code graph analysis service, not ingestion
+            enabled = source_config.get("enabled", "true").lower() == "true"
+            if not enabled:
+                logger.info(
+                    "CodeQL disabled for business area",
+                    business_area=business_area
+                )
+                return None
+            
+            repos = source_config.get("repos")
+            if repos:
+                # Handle pipe-separated list of repos
+                if isinstance(repos, str):
+                    repos = [r.strip() for r in repos.split("|") if r.strip()]
+                elif isinstance(repos, list):
+                    repos = repos
+            else:
+                repos = []
+            
+            return {
+                "enabled": True,
+                "repos": repos,
+                "business_area": business_area
+            }
+
+        logger.warning(
+            "No ingestion connector implemented for source type; skipping",
+            business_area=business_area,
+            source=source_type.value
+        )
+        return None
 
 # Global ingestion service instance
 ingestion_service = IngestionService()

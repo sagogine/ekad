@@ -21,6 +21,9 @@ class SourceType(str, Enum):
     CONFLUENCE = "confluence"
     FIRESTORE = "firestore"
     GITLAB = "gitlab"
+    CODE = "code"
+    OPENMETADATA = "openmetadata"
+    CODEQL = "codeql"  # Code graph analysis (optional augmentation)
 
 
 @dataclass

@@ -15,7 +15,7 @@ class LLMService:
         """Initialize the LLM service."""
         self.llm = ChatGoogleGenerativeAI(
             model=settings.llm_model,
-            google_api_key=settings.google_api_key,
+            google_api_key=settings.get_secret_value(settings.google_api_key, field_name="google_api_key"),
             temperature=settings.llm_temperature,
             max_output_tokens=settings.llm_max_tokens,
             convert_system_message_to_human=True,  # Gemini doesn't support system messages

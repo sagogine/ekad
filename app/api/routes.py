@@ -1,17 +1,23 @@
-"""API routes for EKAP."""
+"""API routes for Traceback."""
 import uuid
 from typing import Dict
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from app.models import (
-    QueryRequest,
-    QueryResponse,
     IngestionRequest,
     IngestionResponse,
-    IngestionStatus
+    IngestionStatus,
+    IncidentRequest,
+    IncidentResponse,
+    CodeSourceRegisterRequest,
+    CodeSourceResponse,
+    CodeSourceListResponse,
+    CodeAnalysisRequest,
+    CodeAnalysisResponse,
 )
-from agents.graph import knowledge_workflow
+from agents.incident_workflow import incident_workflow
 from ingestion.service import ingestion_service, SyncMode
 from ingestion.base import SourceType
+from codeql import code_source_registry, codeql_analysis_service
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -20,60 +26,6 @@ router = APIRouter(prefix="/api/v1", tags=["api"])
 
 # In-memory job storage (use Redis in production)
 ingestion_jobs: Dict[str, Dict] = {}
-
-
-@router.post("/query", response_model=QueryResponse)
-async def query_knowledge(request: QueryRequest) -> QueryResponse:
-    """
-    Query the knowledge base using multi-agent workflow.
-    
-    Args:
-        request: Query request with query and business_area
-        
-    Returns:
-        Response with answer, sources, and metadata
-    """
-    try:
-        logger.info(
-            "Query received",
-            query=request.query[:50],
-            business_area=request.business_area
-        )
-        
-        # Run workflow
-        result = await knowledge_workflow.run(
-            query=request.query,
-            business_area=request.business_area,
-            max_iterations=request.max_iterations
-        )
-        
-        # Format response
-        response = QueryResponse(
-            response=result["response"],
-            sources=[
-                {
-                    "title": s["title"],
-                    "source": s["source"],
-                    "document_type": s["document_type"],
-                    "url": s["url"],
-                    "score": s["score"]
-                }
-                for s in result["sources"]
-            ],
-            metadata=result["metadata"]
-        )
-        
-        logger.info(
-            "Query completed",
-            business_area=request.business_area,
-            sources_count=len(response.sources)
-        )
-        
-        return response
-    
-    except Exception as e:
-        logger.error("Query failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/ingest", response_model=IngestionResponse)
@@ -156,6 +108,67 @@ async def get_ingestion_status(job_id: str) -> IngestionStatus:
     )
 
 
+@router.post("/incidents", response_model=IncidentResponse)
+async def generate_incident_brief(request: IncidentRequest) -> IncidentResponse:
+    """
+    Generate an incident briefing for the provided payload.
+    
+    Args:
+        request: Incident request payload
+        
+    Returns:
+        Incident briefing and context
+    """
+    try:
+        logger.info(
+            "Incident request received",
+            business_area=request.business_area,
+            query=request.query[:100],
+            payload_keys=list(request.incident_payload.keys())
+        )
+
+        workflow_result = await incident_workflow.run(
+            query=request.query,
+            business_area=request.business_area,
+            incident_payload=request.incident_payload,
+            retrieval_plan=request.retrieval_plan.dict() if request.retrieval_plan else None
+        )
+
+        attachments = [
+            {
+                "source": attachment["source"],
+                "retriever": attachment["retriever"],
+                "document_count": attachment["document_count"],
+                "message": attachment["message"]
+            }
+            for attachment in workflow_result.get("attachments", [])
+        ]
+
+        response = IncidentResponse(
+            briefing_summary=workflow_result.get("briefing_summary"),
+            briefing_markdown=workflow_result.get("briefing_markdown"),
+            incident_context=workflow_result.get("incident_context", {}),
+            attachments=attachments,
+            errors=workflow_result.get("errors", [])
+        )
+
+        logger.info(
+            "Incident briefing generated",
+            business_area=request.business_area,
+            has_errors=bool(response.errors)
+        )
+
+        return response
+
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error(
+            "Incident briefing generation failed",
+            business_area=request.business_area,
+            error=str(exc)
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 async def run_ingestion(
     job_id: str,
     business_area: str,
@@ -233,3 +246,265 @@ async def run_ingestion(
         )
         ingestion_jobs[job_id]["status"] = "failed"
         ingestion_jobs[job_id]["error"] = str(e)
+
+
+# ============================================
+# Code Source Management Endpoints
+# ============================================
+@router.post("/code-sources/register", response_model=CodeSourceResponse)
+async def register_code_source(request: CodeSourceRegisterRequest) -> CodeSourceResponse:
+    """
+    Register a code source for CodeQL analysis.
+    
+    Args:
+        request: Code source registration request
+        
+    Returns:
+        Registered source information
+    """
+    try:
+        source_id = code_source_registry.register(
+            business_area=request.business_area,
+            source_type=request.source_type,
+            path=request.path,
+            languages=request.languages,
+            name=request.name,
+            enabled=request.enabled
+        )
+        
+        source = code_source_registry.get(source_id)
+        if not source:
+            raise HTTPException(status_code=500, detail="Failed to retrieve registered source")
+        
+        return CodeSourceResponse(
+            source_id=source.source_id,
+            business_area=source.business_area,
+            source_type=source.source_type,
+            path=source.path,
+            languages=source.languages,
+            name=source.name,
+            enabled=source.enabled,
+            last_analyzed_commit=source.last_analyzed_commit,
+            last_analyzed_time=source.last_analyzed_time.isoformat() if source.last_analyzed_time else None
+        )
+    
+    except Exception as e:
+        logger.error("Failed to register code source", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/code-sources", response_model=CodeSourceListResponse)
+async def list_code_sources(
+    business_area: str | None = None,
+    source_type: str | None = None,
+    enabled_only: bool = False
+) -> CodeSourceListResponse:
+    """
+    List registered code sources.
+    
+    Args:
+        business_area: Optional filter by business area
+        source_type: Optional filter by source type (gitlab, filesystem)
+        enabled_only: Only return enabled sources
+        
+    Returns:
+        List of code sources
+    """
+    try:
+        sources = code_source_registry.list_sources(
+            business_area=business_area,
+            source_type=source_type,
+            enabled_only=enabled_only
+        )
+        
+        source_responses = [
+            CodeSourceResponse(
+                source_id=source.source_id,
+                business_area=source.business_area,
+                source_type=source.source_type,
+                path=source.path,
+                languages=source.languages,
+                name=source.name,
+                enabled=source.enabled,
+                last_analyzed_commit=source.last_analyzed_commit,
+                last_analyzed_time=source.last_analyzed_time.isoformat() if source.last_analyzed_time else None
+            )
+            for source in sources
+        ]
+        
+        return CodeSourceListResponse(
+            sources=source_responses,
+            total=len(source_responses)
+        )
+    
+    except Exception as e:
+        logger.error("Failed to list code sources", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/code-sources/{source_id}", response_model=CodeSourceResponse)
+async def get_code_source(source_id: str) -> CodeSourceResponse:
+    """
+    Get code source by ID.
+    
+    Args:
+        source_id: Source ID
+        
+    Returns:
+        Source information
+    """
+    source = code_source_registry.get(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+    
+    return CodeSourceResponse(
+        source_id=source.source_id,
+        business_area=source.business_area,
+        source_type=source.source_type,
+        path=source.path,
+        languages=source.languages,
+        name=source.name,
+        enabled=source.enabled,
+        last_analyzed_commit=source.last_analyzed_commit,
+        last_analyzed_time=source.last_analyzed_time.isoformat() if source.last_analyzed_time else None
+    )
+
+
+@router.delete("/code-sources/{source_id}")
+async def delete_code_source(source_id: str) -> Dict[str, str]:
+    """
+    Delete a code source from registry.
+    
+    Args:
+        source_id: Source ID
+        
+    Returns:
+        Success message
+    """
+    try:
+        code_source_registry.delete(source_id)
+        return {"message": f"Source {source_id} deleted successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to delete code source", source_id=source_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Code Analysis Endpoints
+# ============================================
+@router.post("/analyze", response_model=CodeAnalysisResponse)
+async def trigger_code_analysis(
+    request: CodeAnalysisRequest,
+    background_tasks: BackgroundTasks
+) -> CodeAnalysisResponse:
+    """
+    Trigger CodeQL analysis for code sources.
+    
+    Args:
+        request: Analysis request (business_area or source_id)
+        background_tasks: FastAPI background tasks
+        
+    Returns:
+        Job ID and status
+    """
+    try:
+        job_id = str(uuid.uuid4())
+        
+        if request.source_id:
+            # Analyze specific source
+            source = code_source_registry.get(request.source_id)
+            if not source:
+                raise HTTPException(status_code=404, detail=f"Source not found: {request.source_id}")
+            
+            background_tasks.add_task(
+                run_code_analysis,
+                job_id=job_id,
+                source_id=request.source_id
+            )
+            
+            message = f"Analysis started for source {request.source_id}"
+            business_area = source.business_area
+        
+        elif request.business_area:
+            # Analyze all sources for business area
+            if not codeql_analysis_service.is_codeql_enabled(request.business_area):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"CodeQL not enabled for business area: {request.business_area}"
+                )
+            
+            background_tasks.add_task(
+                run_code_analysis,
+                job_id=job_id,
+                business_area=request.business_area
+            )
+            
+            message = f"Analysis started for business area {request.business_area}"
+            business_area = request.business_area
+        
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either business_area or source_id must be provided"
+            )
+        
+        logger.info("Code analysis triggered", job_id=job_id, business_area=business_area)
+        
+        return CodeAnalysisResponse(
+            job_id=job_id,
+            status="running",
+            message=message,
+            business_area=business_area,
+            source_id=request.source_id
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to trigger code analysis", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def run_code_analysis(
+    job_id: str,
+    source_id: str | None = None,
+    business_area: str | None = None
+):
+    """
+    Run code analysis in background.
+    
+    Args:
+        job_id: Job ID
+        source_id: Optional specific source ID
+        business_area: Optional business area (analyzes all sources)
+    """
+    try:
+        logger.info(
+            "Starting background code analysis",
+            job_id=job_id,
+            source_id=source_id,
+            business_area=business_area
+        )
+        
+        if source_id:
+            result = await codeql_analysis_service.analyze_source(source_id)
+        elif business_area:
+            result = await codeql_analysis_service.analyze_business_area(business_area)
+        else:
+            logger.error("Neither source_id nor business_area provided")
+            return
+        
+        logger.info(
+            "Background code analysis completed",
+            job_id=job_id,
+            status=result.get("status")
+        )
+    
+    except Exception as e:
+        logger.error(
+            "Background code analysis failed",
+            job_id=job_id,
+            error=str(e)
+        )
