@@ -48,6 +48,10 @@ data/qdrant/*
 !data/qdrant/.gitkeep
 data/cache/*
 !data/cache/.gitkeep
+data/neo4j/
+data/neo4j-logs/
+data/codeql-databases/
+data/code_source_registry.json
 
 # Logs
 *.log
@@ -69,3 +73,6 @@ htmlcov/
 # uv
 .uv/
 uv.lock
+
+# Documentation tracking files
+docs/tracking/
