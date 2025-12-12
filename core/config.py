@@ -284,7 +284,19 @@ class Settings(BaseSettings):
         raw = self.sources_config
         if not raw:
             return {}
-        return self._parse_sources_config(raw)
+        # Clean up line continuations (backslashes and newlines)
+        # Remove backslashes followed by newlines/whitespace
+        cleaned = raw.replace('\\\n', '').replace('\\\r\n', '').replace('\\\r', '')
+        # Remove any remaining standalone backslashes that might be from line continuations
+        # But preserve backslashes that are part of actual values (like file paths)
+        # We do this by removing backslashes that are followed by whitespace or at end of string
+        import re
+        cleaned = re.sub(r'\\\s+', ' ', cleaned)  # Replace backslash+whitespace with space
+        cleaned = re.sub(r'\\$', '', cleaned)  # Remove trailing backslashes
+        # Remove extra whitespace and normalize
+        cleaned = ' '.join(cleaned.split())
+        # Filter out empty segments that might be just backslashes
+        return self._parse_sources_config(cleaned)
 
     @property
     def retriever_overrides_map(self) -> dict[str, dict[str, list[str]]]:
@@ -376,6 +388,11 @@ class Settings(BaseSettings):
         mapping: dict[str, dict[str, dict[str, str | list[str]]]] = {}
 
         for entry in Settings._split_top_level(raw):
+            # Skip empty entries (might be from line continuation artifacts)
+            entry = entry.strip()
+            if not entry or entry == '\\':
+                continue
+            
             if ":" not in entry:
                 raise ValueError(
                     f"Invalid sources_config entry '{entry}'. Expected format 'area:source(key=value)'."
