@@ -1,6 +1,6 @@
 """Firestore connector for fetching configuration data."""
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, UTC
 from google.cloud import firestore
 from ingestion.base import BaseConnector, Document, DocumentType, SourceType
 from core.config import settings
@@ -85,7 +85,7 @@ class FirestoreConnector(BaseConnector):
         doc_data = doc_snapshot.to_dict()
         
         # Extract metadata
-        updated_at = doc_data.get('updated_at') or doc_data.get('updatedAt') or datetime.utcnow()
+        updated_at = doc_data.get('updated_at') or doc_data.get('updatedAt') or datetime.now(UTC)
         if isinstance(updated_at, str):
             updated_at = datetime.fromisoformat(updated_at)
         

@@ -1,7 +1,7 @@
 """Change detection and ingestion metadata management."""
 import json
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from core.logging import get_logger
 
@@ -107,7 +107,7 @@ class ChangeDetector:
             timestamp: Sync timestamp (defaults to now)
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(UTC)
         
         key = f"{business_area}_{source}"
         self.metadata[key] = {

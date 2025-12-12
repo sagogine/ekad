@@ -1,6 +1,6 @@
 """Qdrant vector store manager with multi-tenant collections."""
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from core.config import settings
@@ -115,7 +115,7 @@ class QdrantManager:
                     vector=embedding,
                     payload={
                         **doc,
-                        "indexed_at": datetime.utcnow().isoformat()
+                        "indexed_at": datetime.now(UTC).isoformat()
                     }
                 )
                 for doc, embedding in zip(documents, embeddings)

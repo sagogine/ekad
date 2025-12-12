@@ -1,6 +1,6 @@
 """Confluence connector for fetching documentation."""
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 from atlassian import Confluence
 from bs4 import BeautifulSoup
 from ingestion.base import BaseConnector, Document, DocumentType, SourceType
@@ -76,7 +76,7 @@ class ConfluenceConnector(BaseConnector):
         
         # Extract metadata
         version = page.get('version', {})
-        last_modified_str = version.get('when', datetime.utcnow().isoformat())
+        last_modified_str = version.get('when', datetime.now(UTC).isoformat())
         last_modified = datetime.fromisoformat(last_modified_str.replace('Z', '+00:00'))
         
         author = version.get('by', {}).get('displayName', 'Unknown')

@@ -1,6 +1,6 @@
 """Ingestion service orchestrating connectors, processing, and vector store."""
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from ingestion.base import Document, SourceType
 from ingestion.confluence import ConfluenceConnector
@@ -114,7 +114,7 @@ class IngestionService:
             Ingestion results
         """
         try:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(UTC)
             logger.info(
                 "Starting ingestion",
                 business_area=business_area,
@@ -148,7 +148,7 @@ class IngestionService:
                     "documents_processed": 0,
                     "chunks_created": 0,
                     "documents_deleted": 0,
-                    "duration_seconds": (datetime.utcnow() - start_time).total_seconds()
+                    "duration_seconds": (datetime.now(UTC) - start_time).total_seconds()
                 }
             
             # Process documents (chunk and embed)
@@ -198,7 +198,7 @@ class IngestionService:
                 document_ids=current_doc_ids
             )
             
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
             
             result = {
                 "status": "success",

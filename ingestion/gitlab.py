@@ -1,6 +1,6 @@
 """GitLab connector for fetching code, wikis, and issues."""
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 import gitlab
 from ingestion.base import BaseConnector, Document, DocumentType, SourceType
 from core.config import settings
@@ -69,7 +69,7 @@ class GitLabConnector(BaseConnector):
             
             # Get last commit for this file
             commits = self.project.commits.list(path=file_path, per_page=1)
-            last_modified = datetime.utcnow()
+            last_modified = datetime.now(UTC)
             if commits:
                 last_modified = datetime.fromisoformat(
                     commits[0].committed_date.replace('Z', '+00:00')
@@ -167,7 +167,7 @@ class GitLabConnector(BaseConnector):
             source=SourceType.GITLAB,
             document_type=DocumentType.WIKI,
             business_area=self.business_area,
-            last_modified=datetime.utcnow(),  # Wiki doesn't have last_modified
+            last_modified=datetime.now(UTC),  # Wiki doesn't have last_modified
             url=url,
             metadata={
                 "project": self.project_path,

@@ -1,6 +1,6 @@
 """Test data connectors."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, UTC
 import pytest
 from ingestion.base import Document, DocumentType, SourceType
 from ingestion.processor import document_processor
@@ -25,7 +25,7 @@ async def test_document_processing():
         source=SourceType.CONFLUENCE,
         document_type=DocumentType.REQUIREMENT,
         business_area=settings.business_areas_list[0] if settings.business_areas_list else "default",
-        last_modified=datetime.utcnow(),
+        last_modified=datetime.now(UTC),
         url="https://example.com/test",
         metadata={"author": "Test Author"}
     )

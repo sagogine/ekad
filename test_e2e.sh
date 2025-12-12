@@ -4,7 +4,7 @@
 set -e
 
 BASE_URL="${BASE_URL:-http://localhost:8000}"
-BUSINESS_AREA="${BUSINESS_AREA:-pharmacy}"
+BUSINESS_AREA="${BUSINESS_AREA:-cerebro}"
 
 echo "=========================================="
 echo "Traceback CodeQL End-to-End Test"
