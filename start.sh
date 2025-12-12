@@ -64,12 +64,12 @@ if ! docker info > /dev/null 2>&1; then
 fi
 echo -e "${GREEN}✓${NC} Docker is running"
 
-# Check if docker-compose is available
-if ! command -v docker-compose > /dev/null 2>&1 && ! docker compose version > /dev/null 2>&1; then
-    echo -e "${RED}✗${NC} docker-compose not found!"
+# Check if docker compose is available
+if ! docker compose version > /dev/null 2>&1; then
+    echo -e "${RED}✗${NC} docker compose not found!"
     exit 1
 fi
-echo -e "${GREEN}✓${NC} docker-compose available"
+echo -e "${GREEN}✓${NC} docker compose available"
 
 # Check if Python is available
 if ! command -v python3 > /dev/null 2>&1; then
@@ -82,13 +82,13 @@ echo ""
 
 # Step 2: Stop old containers (if any)
 echo -e "${BLUE}[2/6] Cleaning up old containers...${NC}"
-docker-compose down 2>/dev/null || true
+docker compose down 2>/dev/null || true
 echo -e "${GREEN}✓${NC} Cleanup complete"
 echo ""
 
 # Step 3: Start Qdrant
 echo -e "${BLUE}[3/6] Starting Qdrant (Vector Database)...${NC}"
-docker-compose up -d qdrant
+docker compose up -d qdrant
 
 # Wait for Qdrant to be healthy
 echo "Waiting for Qdrant to be ready..."
@@ -111,7 +111,7 @@ echo ""
 
 # Step 4: Start Redis
 echo -e "${BLUE}[4/6] Starting Redis (Cache)...${NC}"
-docker-compose up -d redis
+docker compose up -d redis
 
 # Wait for Redis to be ready
 echo "Waiting for Redis to be ready..."
@@ -136,7 +136,7 @@ echo ""
 echo -e "${BLUE}[5/6] Checking CodeQL/Neo4j configuration...${NC}"
 if grep -q "CODEQL_ENABLED=true" .env 2>/dev/null; then
     echo "CodeQL is enabled, starting Neo4j..."
-    docker-compose up -d neo4j
+    docker compose up -d neo4j
     
     # Wait for Neo4j to be ready
     echo "Waiting for Neo4j to be ready..."
@@ -199,7 +199,7 @@ if [ "$all_healthy" = true ]; then
     echo -e "   ${YELLOW}uvicorn app.main:app --reload --port 8000${NC}"
     echo ""
     echo "   OR using Docker:"
-    echo -e "   ${YELLOW}docker-compose up -d api${NC}"
+    echo -e "   ${YELLOW}docker compose up -d api${NC}"
     echo ""
     echo "2. Verify API is running:"
     echo -e "   ${YELLOW}curl http://localhost:8000/health${NC}"
@@ -208,7 +208,7 @@ if [ "$all_healthy" = true ]; then
     echo -e "   ${YELLOW}http://localhost:8000/docs${NC}"
     echo ""
     echo "4. View service logs:"
-    echo -e "   ${YELLOW}docker-compose logs -f${NC}"
+    echo -e "   ${YELLOW}docker compose logs -f${NC}"
     echo ""
 else
     echo -e "${YELLOW}========================================${NC}"
@@ -216,10 +216,10 @@ else
     echo -e "${YELLOW}========================================${NC}"
     echo ""
     echo "Check logs:"
-    echo "  docker-compose logs qdrant"
-    echo "  docker-compose logs redis"
+    echo "  docker compose logs qdrant"
+    echo "  docker compose logs redis"
     if grep -q "CODEQL_ENABLED=true" .env 2>/dev/null; then
-        echo "  docker-compose logs neo4j"
+        echo "  docker compose logs neo4j"
     fi
     exit 1
 fi
